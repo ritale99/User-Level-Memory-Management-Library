@@ -2,6 +2,7 @@
 #define MY_VM_H_INCLUDED
 #include <stdbool.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
@@ -32,7 +33,7 @@ struct tlb {
 };
 struct tlb tlb_store;
 
-
+void print_TLB_missrate();
 void SetPhysicalMem();
 pte_t* Translate(pde_t *pgdir, void *va);
 int PageMap(pde_t *pgdir, void *va, void* pa);
