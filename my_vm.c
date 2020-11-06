@@ -1,18 +1,29 @@
 #include "my_vm.h"
+int num_phys_pages;
+int num_virt_pages;
 
+int* bitmap_phys;
+int* bitmap_virt;
 /*
 Function responsible for allocating and setting your physical memory 
 */
 void SetPhysicalMem() {
 
-    //Allocate physical memory using mmap or malloc; this is the total size of
-    //your memory you are simulating
-
+    	//Allocate physical memory using mmap or malloc; this is the total size of
+    	//your memory you are simulating
+	void *ptr = malloc(MEMSIZE);
     
-    //HINT: Also calculate the number of physical and virtual pages and allocate
-    //virtual and physical bitmaps and initialize them
+    	//HINT: Also calculate the number of physical and virtual pages and allocate
+    	//virtual and physical bitmaps and initialize them	
+	num_phys_pages = MEMSIZE/PGSIZE;
+	num_virt_pages = MAX_MEMSIZE/PGSIZE;	
+	
+	bitmap_phys = malloc(sizeof(int)*num_phys_pages);
+	bitmap_virt = malloc(sizeof(int)*num_virt_pages);
 
+	//initialize page directory
 }
+
 
 /*
  * Part 2: Add a virtual to physical page translation to the TLB.
@@ -105,7 +116,7 @@ and used by the benchmark
 void *myalloc(unsigned int num_bytes) {
 
     //HINT: If the physical memory is not yet initialized, then allocate and initialize.
-
+	SetPhysicalMem(); 
    /* HINT: If the page directory is not initialized, then initialize the
    page directory. Next, using get_next_avail(), check if there are free pages. If
    free pages are available, set the bitmaps and map a new page. Note, you will 
