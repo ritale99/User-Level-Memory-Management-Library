@@ -1,29 +1,6 @@
 #include "my_vm.h"
-int num_phys_pages;
-int num_virt_pages;
 
-int* bitmap_phys;
-int* bitmap_virt;
-/*
-Function responsible for allocating and setting your physical memory 
-*/
-void SetPhysicalMem() {
-
-    	//Allocate physical memory using mmap or malloc; this is the total size of
-    	//your memory you are simulating
-	void *ptr = malloc(MEMSIZE);
-    
-    	//HINT: Also calculate the number of physical and virtual pages and allocate
-    	//virtual and physical bitmaps and initialize them	
-	num_phys_pages = MEMSIZE/PGSIZE;
-	num_virt_pages = MAX_MEMSIZE/PGSIZE;	
-	
-	bitmap_phys = malloc(sizeof(int)*num_phys_pages);
-	bitmap_virt = malloc(sizeof(int)*num_virt_pages);
-
-	//initialize page directory
-}
-
+int init;
 
 /*
  * Part 2: Add a virtual to physical page translation to the TLB.
@@ -70,6 +47,82 @@ print_TLB_missrate()
 }
 
 /*
+Function responsible for allocating and setting your physical memory 
+*/
+void SetPhysicalMem() {
+
+    //Allocate physical memory using mmap or malloc; this is the total size of
+    //your memory you are simulating
+	if ( init ) return;
+
+    
+    //HINT: Also calculate the number of physical and virtual pages and allocate
+    //virtual and physical bitmaps and initialize them
+
+	//malloc mem
+	//calculate # of physical and virtual pages
+	//	# of virtual pages = MAX_MEMSIZE / size of a single page (pgsize)
+	// 	# of physical pages = MEMSIZE / pgsize
+	//initialize virtual and physical bitmaps
+	//	physical bitmap would be #phys_pages size
+	//	virtual bitmap would be #virt_pages size
+	unsigned int delta;
+
+	//calculate virtual page count
+	virt_page_count = MAX_MEMSIZE / PGSIZE;
+	//calculate physical page count
+	phys_page_count = MEMSIZE / PGSIZE;
+
+	//calculate offset bit count
+	offset_bit_count = (unsigned int) ceil(log(PGSIZE)/log(2));
+	if ( offset_bit_count >= 32 ) {
+		printf("offset too high\n");
+		exit(0);
+	}
+	delta = 32 - offset_bit_count;
+
+	//calculate inner bit count
+	inner_bit_count = delta / 2;
+	//calculate outer bit count
+	outer_bit_count = delta - inner_bit_count;
+
+	//allocate mem
+	mem = (char*) malloc(sizeof(char) * MEMSIZE);
+	//check if mem was allocated
+	if ( mem == NULL ) return;
+	//allocate page directory
+	page_dir = (pde_t*) malloc(sizeof(pde_t) * phys_page_count);
+	if(page_dir == NULL) {
+		free(mem);
+		exit(0);
+	}
+	//create physical bit map
+	phys_bit_map = (char*) malloc(sizeof(char) * phys_page_count);
+	if(phys_bit_map == NULL) {
+		free(mem);
+		free(page_dir);
+		exit(0);
+	}
+	//create virtual bit map
+	virt_bit_map = (char*) malloc(sizeof(char) * virt_page_count);
+	if(virt_bit_map == NULL){
+		free(phys_bit_map);
+		free(page_dir);
+		free(mem);
+		exit(0);
+	}
+
+	//initialize
+	memset(phys_bit_map, 0, sizeof(char) * phys_page_count);
+	memset(virt_bit_map, 0, sizeof(char) * virt_page_count);
+
+	//printf("size of physical memory: %lld\nphysical page count: %lld\nvirtual page count: %lld\n", sizeof(mem), phys_page_count, virt_page_count);
+	init = 1;
+}
+
+
+
+/*
 The function takes a virtual address and page directories starting address and
 performs translation to return the physical address
 */
@@ -77,6 +130,84 @@ pte_t * Translate(pde_t *pgdir, void *va) {
     //HINT: Get the Page directory index (1st level) Then get the
     //2nd-level-page table index using the virtual address.  Using the page
     //directory index and page table index get the physical address
+
+	//TEMPT
+	unsigned int offset_bit_count = (unsigned int) ceil(log(PGSIZE) / log(2));
+	if (offset_bit_count >= 32) {
+		printf("offset too high\n");
+		exit(0);
+	}
+	unsigned int delta = 32 - offset_bit_count;
+	//calculate inner bit count
+	unsigned int inner_bit_count = delta / 2;
+	//calculate outer bit count
+	unsigned int outer_bit_count = delta - inner_bit_count;
+	//TEMPT
+
+	if (va == NULL) return NULL;
+
+	pde_t selPgdir;
+	pte_t selPgtab;
+
+	//retrieve the bit string for the given address
+	char * bin = hextobin(va);
+	unsigned int offset = 0;
+	unsigned int inner = 0;
+	unsigned int outer = 0;
+	//counter
+	int i = 0;
+	//counter to keep track of which bit we are on
+	int counter = 0;
+	//length of the bin
+	size_t length;
+	//error checking
+	if ( bin == NULL ) {
+		printf("an error occurred on 78\n");
+		return NULL;
+	}
+
+	//get the length of the binary string
+	length = strlen(bin);
+	//retrieve the value for offset, inner, and outer
+	for(i = length - 1 ; i >= 0; i--){
+		//reset counter for every time we pass a bit count
+		if ( (length - 1 - i) == offset_bit_count ||  (length-1 - i - offset_bit_count) == inner_bit_count ||
+				(length - 1 - i - offset_bit_count - inner_bit_count) == outer_bit_count){
+			counter = 0;
+		}
+		if (bin[i] == '1') {
+			//get value for offset bit
+			if ((length - 1 - i) < offset_bit_count) {
+				offset += (unsigned int) pow(2, counter);
+			}
+			//get value for inner set bit
+			else if ((length - 1 - i - offset_bit_count) < inner_bit_count) {
+				inner += (unsigned int) pow(2, counter);
+			}
+			//get value for outer set bit
+			else if ((length - 1 - i - offset_bit_count - inner_bit_count)
+					< outer_bit_count) {
+				outer += (unsigned int) pow(2, counter);
+			}
+		}
+		counter++;
+	}
+	//debug
+	printf("%s\n", bin);
+	printf("%d\n%d\n%d\n", offset, inner, outer);
+	//free bin string
+	free(bin);
+
+	//check if outer's index value is greater than
+	//physical page count
+	if (outer >= phys_page_count) {
+		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, phys_page_count);
+		return NULL;
+	}
+	//retrieve
+	selPgdir = pgdir[outer];
+	selPgtab = selPgdir[inner];
+
 
 
     //If translation not successfull
@@ -116,7 +247,13 @@ and used by the benchmark
 void *myalloc(unsigned int num_bytes) {
 
     //HINT: If the physical memory is not yet initialized, then allocate and initialize.
-	SetPhysicalMem(); 
+	if ( !init ) SetPhysicalMem();
+	//allocate in term of n * pages not n < page_size
+	//return first virtual address of the allocated virtual page
+	//give out pages not starting at 0x0, only a multiple of 4KB
+
+
+
    /* HINT: If the page directory is not initialized, then initialize the
    page directory. Next, using get_next_avail(), check if there are free pages. If
    free pages are available, set the bitmaps and map a new page. Note, you will 
@@ -175,4 +312,32 @@ void MatMult(void *mat1, void *mat2, int size, void *answer) {
     store the result to the "answer array"*/
 
        
+}
+
+//helper function
+
+//return a string of binary from the given hex address
+char *hextobin(void * addr) {
+	if(addr == NULL) return NULL;
+	unsigned int g = (unsigned int) addr;
+	char * hexChar = (char *)malloc(sizeof(char) * 32);
+	if ( hexChar == NULL ) return NULL;
+	itoa(g,hexChar,2);
+	return hexChar;
+}
+
+//return the address from a given binary string
+void * bintohex(char * bin){
+	if (bin == NULL) return NULL;
+	unsigned int val = 0;
+	unsigned int counter = 0;
+	size_t length = strlen(bin);
+	int i = 0;
+	for ( i = 0 ; i < length; i ++){
+		if(bin[length - i- 1] == '1'){
+			val += (unsigned int)pow(2,counter);
+		}
+		counter++;
+	}
+	return (void *) val;
 }
