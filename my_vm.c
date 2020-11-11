@@ -243,10 +243,14 @@ PageMap(pde_t *pgdir, void *va, void *pa)
 void *get_next_avail_phys(int num_pages) {
 
 	//Use physical address bitmap to find the next free page
-	int curr_page;
+	int curr_page; int num_free = 0;
 	for(curr_page = 0; curr_page < phys_page_count; curr_page++){	
 		if(phys_bit_map[curr_page] == '0'){
-			return curr_page;
+			
+			num_pages++;
+			if(num_free = num_pages){
+				return curr_page;
+			}
 		}
 	}
 	
@@ -258,14 +262,21 @@ void *get_next_avail_phys(int num_pages) {
 */
 void *get_next_avail(int num_pages) {
 
-    //Use virtual address bitmap to find the next free page
-    int curr_page;
-    for(curr_page = 0; curr_page < virt_page_count; curr_page++){
-    	if(virt_bit_map[curr_page] == '0'){
-		return curr_page;
+	//Use virtual address bitmap to find the next free page
+	int curr_page; int num_free = 0;
+	for(curr_page = 0; curr_page < virt_page_count; curr_page++){	
+		if(virt_bit_map[curr_page] == '0'){
+			
+			num_pages++;
+			if(num_free = num_pages){
+				return curr_page;
+			}
+		}
 	}
-    }
+	
+	//could not find free pages
 	return -1;
+
 }
 
 /* Function responsible for allocating pages
