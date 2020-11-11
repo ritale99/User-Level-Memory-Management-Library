@@ -238,13 +238,35 @@ PageMap(pde_t *pgdir, void *va, void *pa)
 }
 
 
-/*Function that gets the next available page
+/*Function that gets the next available physical page
 */
-void *get_next_avail(int num_pages) {
- 
-    //Use virtual address bitmap to find the next free page
+void *get_next_avail_phys(int num_pages) {
+
+	//Use physical address bitmap to find the next free page
+	int curr_page;
+	for(curr_page = 0; curr_page < phys_page_count; curr_page++){	
+		if(phys_bit_map[curr_page] == '0'){
+			return curr_page;
+		}
+	}
+	
+	//could not find free pages
+	return -1;
 }
 
+/*Function that gets the next available virtual page
+*/
+void *get_next_avail(int num_pages) {
+
+    //Use virtual address bitmap to find the next free page
+    int curr_page;
+    for(curr_page = 0; curr_page < virt_page_count; curr_page++){
+    	if(virt_bit_map[curr_page] == '0'){
+		return curr_page;
+	}
+    }
+	return -1;
+}
 
 /* Function responsible for allocating pages
 and used by the benchmark
