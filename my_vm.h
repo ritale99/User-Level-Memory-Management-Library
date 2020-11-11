@@ -4,7 +4,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-
+#include <math.h>
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
 
@@ -18,8 +18,8 @@
 #define MEMSIZE 1024*1024*1024					//how much we currently have, phys mem
 
 // Represents a page table entry
-//typedef unsigned long pte_t;	//store phys addr
-typedef void * pte_t;
+typedef unsigned long pte_t;	//store phys addr
+//typedef void * pte_t;
 
 // Represents a page directory entry
 //typedef unsigned long pde_t;	//essentially a pte_t *;
