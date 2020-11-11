@@ -118,6 +118,15 @@ void SetPhysicalMem() {
 
 	//printf("size of physical memory: %lld\nphysical page count: %lld\nvirtual page count: %lld\n", sizeof(mem), phys_page_count, virt_page_count);
 	init = 1;
+
+	//TEMPT
+	int * tempt_int = (int *) malloc(sizeof(int));
+	*tempt_int = 20;
+	pte_t * tempt_page_table = (pte_t *) (malloc(sizeof(pte_t)*PGSIZE));
+	tempt_page_table[0] =  tempt_int;
+
+	page_dir[1] = tempt_page_table;
+	//TEMPT
 }
 
 
@@ -130,20 +139,6 @@ pte_t * Translate(pde_t *pgdir, void *va) {
     //HINT: Get the Page directory index (1st level) Then get the
     //2nd-level-page table index using the virtual address.  Using the page
     //directory index and page table index get the physical address
-
-	//TEMPT
-	unsigned int offset_bit_count = (unsigned int) ceil(log(PGSIZE) / log(2));
-	if (offset_bit_count >= 32) {
-		printf("offset too high\n");
-		exit(0);
-	}
-	unsigned int delta = 32 - offset_bit_count;
-	//calculate inner bit count
-	unsigned int inner_bit_count = delta / 2;
-	//calculate outer bit count
-	unsigned int outer_bit_count = delta - inner_bit_count;
-	//TEMPT
-
 	if (va == NULL) return NULL;
 
 	pde_t selPgdir;
@@ -204,14 +199,24 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, phys_page_count);
 		return NULL;
 	}
+	if ( offset >= PGSIZE ) {
+		printf("Requested offset: %d is greater than the PGSIZE: %d\n", offset, PGSIZE);
+		return NULL;
+	}
 	//retrieve
 	selPgdir = pgdir[outer];
 	selPgtab = selPgdir[inner];
 
+	selPgtab = *((&selPgtab) + offset);
 
+	//since pte_t is a void *
+	//pte_t points to the starting address of a physical frame
+	//we can add the offset to that starting address to find our
+	//intended physical page
 
-    //If translation not successfull
-    return NULL; 
+	printf("return physical address: %x\n", selPgtab);
+
+	return &selPgtab;
 }
 
 
