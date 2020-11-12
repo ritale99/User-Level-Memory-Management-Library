@@ -56,6 +56,8 @@ unsigned int virt_page_count;
 unsigned int phys_page_count;
 unsigned int outer_bit_count;
 unsigned int inner_bit_count;
+unsigned int outer_page_count;
+unsigned int inner_page_count;
 unsigned int offset_bit_count;
 
 
