@@ -226,15 +226,97 @@ as an argument, and sets a page table entry. This function will walk the page
 directory to see if there is an existing mapping for a virtual address. If the
 virtual address is not present, then a new entry will be added
 */
-int
-PageMap(pde_t *pgdir, void *va, void *pa)
+int PageMap(pde_t *pgdir, void *va, void *pa)
 {
 
     /*HINT: Similar to Translate(), find the page directory (1st level)
     and page table (2nd-level) indices. If no mapping exists, set the
     virtual to physical mapping */
 
-    return -1;
+    if (va == null) return NULL;
+    
+    
+    pde_t selPgdir;
+    pte_t selPgtab;
+
+    char * bin = hextobin(va);
+    unsigned int offset = 0;
+    unsigned int inner = 0;
+    unsigned int outer = 0;
+
+    //counter 
+    int i =0;
+    //counter to keep track of which bit we are on
+    int counter =0;
+    //length of the bin(binary of virtual address)
+    size_t length;
+    if (bin == NULL){
+	printf("an error occured on 100");    
+    	return NULL;
+    }
+
+    //get the length of the binary string
+    length = strlen(bin);
+    //retreive the value for offset, inner, outer
+    for(i = length - 1 ; i >= 0; i--){
+		//reset counter for every time we pass a bit count
+		if ( (length - 1 - i) == offset_bit_count ||  (length-1 - i - offset_bit_count) == inner_bit_count ||
+				(length - 1 - i - offset_bit_count - inner_bit_count) == outer_bit_count){
+			counter = 0;
+		}
+		if (bin[i] == '1') {
+		//get value for offset bit
+		if ((length - 1 - i) < offset_bit_count) {
+			offset += (unsigned int) pow(2, counter);
+		}
+		//get value for inner set bit
+		else if ((length - 1 - i - offset_bit_count) < inner_bit_count) {
+			inner += (unsigned int) pow(2, counter);
+		}
+		//get value for outer set bit
+		else if ((length - 1 - i - offset_bit_count - inner_bit_count)	< outer_bit_count) {
+			outer += (unsigned int) pow(2, counter);
+			}
+		}
+		counter++;
+	}
+	//debug
+	printf("%s\n", bin);
+	printf("%d\n%d\n%d\n", offset, inner, outer);
+	//free bin string
+	free(bin);
+
+	//check if outer's index value is greater than
+	//physical page count
+	if (outer >= phys_page_count) {
+		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, phys_page_count);
+		return NULL;
+	}
+	if ( offset >= PGSIZE ) {
+		printf("Requested offset: %d is greater than the PGSIZE: %d\n", offset, PGSIZE);
+		return NULL;
+	}
+	
+	//here we have retrieved the outer, inner, offset bits
+	
+	//index into page directory to find pg table
+	selPgdir = pgdir[outer];
+
+	//get the physical address
+	selPgtab = selPgdir[inner];
+	selPgtab = *((&selPgtab) + offset);
+	
+	if(selPgtab == NULL){
+		//the mapping doesn't exist, enter it
+		*((&selPgtab) + offset) = pa; 
+		printf("New mapping was set");
+	}
+
+	else{
+		printf("The mapping exists");
+	}
+   
+       	return -1;
 }
 
 
