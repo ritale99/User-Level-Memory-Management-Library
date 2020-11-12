@@ -79,12 +79,17 @@ void SetPhysicalMem() {
 		printf("offset too high\n");
 		exit(0);
 	}
+	//calculate the remain bit to distribute
 	delta = 32 - offset_bit_count;
 
 	//calculate inner bit count
 	inner_bit_count = delta / 2;
 	//calculate outer bit count
 	outer_bit_count = delta - inner_bit_count;
+	//calculate page table count for outer
+	outer_page_count = pow(2, outer_bit_count);
+	//calculate page count for inner
+	inner_page_count = pow(2, inner_bit_count);
 
 	//allocate mem
 	mem = (char*) malloc(sizeof(char) * MEMSIZE);
@@ -120,10 +125,33 @@ void SetPhysicalMem() {
 	init = 1;
 
 	//TEMPT
+	//in this test sample I allocated 3 things
+	//int *, char *, and char *, of size int, char * 12, char * 12
+	//respectively. I then allocate space for a temp page table
+	//and store each of the created item in order given below.
+	//The temp page table is then stored in the 2nd index of the
+	//page directory
+	void * addr1 = NULL;
+	void * addr2 = NULL;
+	void * addr3 = NULL;
+
 	int * tempt_int = (int *) malloc(sizeof(int));
-	*tempt_int = 20;
+	*tempt_int = 90;
+
+	char * char_arr = (char *) malloc(sizeof(char) * 12);
+	char_arr = "hello world";
+
+	char * char_arr2 = (char *) malloc(sizeof(char) * 12);
+	char_arr2 = "test string";
+
+	addr1 = &char_arr;
+	addr2 = &tempt_int;
+	addr3 = &char_arr2;
+
 	pte_t * tempt_page_table = (pte_t *) (malloc(sizeof(pte_t)*PGSIZE));
-	tempt_page_table[0] =  tempt_int;
+	tempt_page_table[0] = (pte_t)char_arr;
+	tempt_page_table[1] = (pte_t)tempt_int;
+	tempt_page_table[2] = (pte_t)char_arr2;
 
 	page_dir[1] = tempt_page_table;
 	//TEMPT
@@ -195,28 +223,26 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 
 	//check if outer's index value is greater than
 	//physical page count
-	if (outer >= phys_page_count) {
-		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, phys_page_count);
+	if (outer >= outer_page_count) {
+		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, outer_page_count);
 		return NULL;
+	}
+	if (inner >= inner_page_count){
+		printf("Requested inner page table %d is greater than the inner page table count %d\n", inner, inner_page_count);
 	}
 	if ( offset >= PGSIZE ) {
 		printf("Requested offset: %d is greater than the PGSIZE: %d\n", offset, PGSIZE);
 		return NULL;
 	}
-	//retrieve
-	selPgdir = pgdir[outer];
-	selPgtab = selPgdir[inner];
-
-	selPgtab = *((&selPgtab) + offset);
-
 	//since pte_t is a void *
 	//pte_t points to the starting address of a physical frame
 	//we can add the offset to that starting address to find our
 	//intended physical page
 
-	printf("return physical address: %x\n", selPgtab);
+	printf("return physical address: %x\n", ((pgdir[outer][inner]) + offset));
 
-	return &selPgtab;
+	//return as pointer to pte_t + offset
+	return (pte_t *) ((pgdir[outer][inner]) + offset);
 }
 
 
@@ -226,56 +252,57 @@ as an argument, and sets a page table entry. This function will walk the page
 directory to see if there is an existing mapping for a virtual address. If the
 virtual address is not present, then a new entry will be added
 */
-int PageMap(pde_t *pgdir, void *va, void *pa)
+int
+PageMap(pde_t *pgdir, void *va, void *pa)
 {
 
-    /*HINT: Similar to Translate(), find the page directory (1st level)
-    and page table (2nd-level) indices. If no mapping exists, set the
-    virtual to physical mapping */
+	/*HINT: Similar to Translate(), find the page directory (1st level)
+	    and page table (2nd-level) indices. If no mapping exists, set the
+	    virtual to physical mapping */
+	if (va == NULL) return NULL;
 
-    if (va == null) return NULL;
-    
-    
-    pde_t selPgdir;
-    pte_t selPgtab;
+	pde_t selPgdir;
+	pte_t selPgtab;
 
-    char * bin = hextobin(va);
-    unsigned int offset = 0;
-    unsigned int inner = 0;
-    unsigned int outer = 0;
+	//retrieve the bit string for the given address
+	char * bin = hextobin(va);
+	unsigned int offset = 0;
+	unsigned int inner = 0;
+	unsigned int outer = 0;
+	//counter
+	int i = 0;
+	//counter to keep track of which bit we are on
+	int counter = 0;
+	//length of the bin
+	size_t length;
+	//error checking
+	if ( bin == NULL ) {
+		printf("an error occurred on 280\n");
+		return NULL;
+	}
 
-    //counter 
-    int i =0;
-    //counter to keep track of which bit we are on
-    int counter =0;
-    //length of the bin(binary of virtual address)
-    size_t length;
-    if (bin == NULL){
-	printf("an error occured on 100");    
-    	return NULL;
-    }
-
-    //get the length of the binary string
-    length = strlen(bin);
-    //retreive the value for offset, inner, outer
-    for(i = length - 1 ; i >= 0; i--){
+	//get the length of the binary string
+	length = strlen(bin);
+	//retrieve the value for offset, inner, and outer
+	for(i = length - 1 ; i >= 0; i--){
 		//reset counter for every time we pass a bit count
 		if ( (length - 1 - i) == offset_bit_count ||  (length-1 - i - offset_bit_count) == inner_bit_count ||
-				(length - 1 - i - offset_bit_count - inner_bit_count) == outer_bit_count){
+			(length - 1 - i - offset_bit_count - inner_bit_count) == outer_bit_count){
 			counter = 0;
 		}
 		if (bin[i] == '1') {
-		//get value for offset bit
-		if ((length - 1 - i) < offset_bit_count) {
-			offset += (unsigned int) pow(2, counter);
-		}
-		//get value for inner set bit
-		else if ((length - 1 - i - offset_bit_count) < inner_bit_count) {
-			inner += (unsigned int) pow(2, counter);
-		}
-		//get value for outer set bit
-		else if ((length - 1 - i - offset_bit_count - inner_bit_count)	< outer_bit_count) {
-			outer += (unsigned int) pow(2, counter);
+			//get value for offset bit
+			if ((length - 1 - i) < offset_bit_count) {
+				offset += (unsigned int) pow(2, counter);
+			}
+			//get value for inner set bit
+			else if ((length - 1 - i - offset_bit_count) < inner_bit_count) {
+				inner += (unsigned int) pow(2, counter);
+			}
+			//get value for outer set bit
+			else if ((length - 1 - i - offset_bit_count - inner_bit_count)
+					< outer_bit_count) {
+				outer += (unsigned int) pow(2, counter);
 			}
 		}
 		counter++;
@@ -285,57 +312,45 @@ int PageMap(pde_t *pgdir, void *va, void *pa)
 	printf("%d\n%d\n%d\n", offset, inner, outer);
 	//free bin string
 	free(bin);
-
 	//check if outer's index value is greater than
 	//physical page count
-	if (outer >= phys_page_count) {
-		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, phys_page_count);
+	if (outer >= outer_page_count) {
+		printf("Requested page directory %d is greater than the physical page count: %d\n", outer, outer_page_count);
 		return NULL;
+	}
+	if (inner >= inner_page_count){
+		printf("Requested inner page table %d is greater than the inner page table count %d\n", inner, inner_page_count);
 	}
 	if ( offset >= PGSIZE ) {
 		printf("Requested offset: %d is greater than the PGSIZE: %d\n", offset, PGSIZE);
 		return NULL;
 	}
-	
-	//here we have retrieved the outer, inner, offset bits
-	
-	//index into page directory to find pg table
-	selPgdir = pgdir[outer];
-
-	//get the physical address
-	selPgtab = selPgdir[inner];
-	selPgtab = *((&selPgtab) + offset);
-	
-	if(selPgtab == NULL){
-		//the mapping doesn't exist, enter it
-		*((&selPgtab) + offset) = pa; 
+	if(((pgdir[outer][inner]) + offset) == NULL){
+	//the mapping doesn't exist, enter it
+		*((pgdir[outer][inner]) + offset) = pa;
 		printf("New mapping was set");
-	}
-
-	else{
+		return -1;
+	}else{
 		printf("The mapping exists");
+		return 0;
 	}
-   
-       	return -1;
 }
-
-
 /*Function that gets the next available physical page
 */
 void *get_next_avail_phys(int num_pages) {
 
 	//Use physical address bitmap to find the next free page
 	int curr_page; int num_free = 0;
-	for(curr_page = 0; curr_page < phys_page_count; curr_page++){	
+	for(curr_page = 0; curr_page < phys_page_count; curr_page++){
 		if(phys_bit_map[curr_page] == '0'){
-			
+
 			num_pages++;
 			if(num_free = num_pages){
 				return &phys_bit_map[curr_page];
 			}
 		}
 	}
-	
+
 	//could not find free pages
 	return NULL;
 }
@@ -346,48 +361,58 @@ void *get_next_avail_virt(int num_pages) {
 
 	//Use virtual address bitmap to find the next free page
 	int curr_page; int num_free = 0;
-	for(curr_page = 0; curr_page < virt_page_count; curr_page++){	
+	for(curr_page = 0; curr_page < virt_page_count; curr_page++){
 		if(virt_bit_map[curr_page] == '0'){
-			
+
 			num_pages++;
 			if(num_free = num_pages){
 				return &virt_bit_map[curr_page];
 			}
 		}
 	}
-	
+
 	//could not find free pages
 	return NULL;
 
 }
+
+/*Function that gets the next available page
+*/
+void *get_next_avail(int num_pages) {
+ 
+    //Use virtual address bitmap to find the next free page
+}
+
 
 /* Function responsible for allocating pages
 and used by the benchmark
 */
 void *myalloc(unsigned int num_bytes) {
 
-	//HINT: If the physical memory is not yet initialized, then allocate and initialize.
+    //HINT: If the physical memory is not yet initialized, then allocate and initialize.
 	if ( !init ) SetPhysicalMem();
+	//allocate in term of n * pages not n < page_size
+	//return first virtual address of the allocated virtual page
+	//give out pages not starting at 0x0, only a multiple of 4KB
+	//HINT: If the physical memory is not yet initialized, then allocate and initialize.
 
 	//allocate in term of n * pages not n < page_size
-	no_pgs = ceil(num_bytes/PGSIZE); 
-
+	no_pgs = ceil(num_bytes/PGSIZE);
 	//return first virtual address of the allocated virtual page
 	void* freePages = get_next_avail_virt(no_pages);
-	
+
 	//give out pages not starting at 0x0, only a multiple of 4KB
-	
+
 	//change the bitmap to be in use
-	
+
 	//map a new page
 
 	//mark which physical pages to use
 
-   	/* HINT: If the page directory is not initialized, then initialize the
+	/* HINT: If the page directory is not initialized, then initialize the
    	page directory. Next, using get_next_avail(), check if there are free pages. If
-   	free pages are available, set the bitmaps and map a new page. Note, you will 
+   	free pages are available, set the bitmaps and map a new page. Note, you will
    	have to mark which physical pages are used. */
-
     return NULL;
 }
 
@@ -470,3 +495,4 @@ void * bintohex(char * bin){
 	}
 	return (void *) val;
 }
+
