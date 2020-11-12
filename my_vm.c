@@ -345,7 +345,7 @@ void *get_next_avail_phys(int num_pages) {
 		if(phys_bit_map[curr_page] == '0'){
 
 			num_pages++;
-			if(num_free = num_pages){
+			if(num_free == num_pages){
 				return &phys_bit_map[curr_page];
 			}
 		}
@@ -365,7 +365,7 @@ void *get_next_avail_virt(int num_pages) {
 		if(virt_bit_map[curr_page] == '0'){
 
 			num_pages++;
-			if(num_free = num_pages){
+			if(num_free == num_pages){
 				return &virt_bit_map[curr_page];
 			}
 		}
