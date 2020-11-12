@@ -331,18 +331,18 @@ void *get_next_avail_phys(int num_pages) {
 			
 			num_pages++;
 			if(num_free = num_pages){
-				return curr_page;
+				return phys_bit_map[curr_page];
 			}
 		}
 	}
 	
 	//could not find free pages
-	return -1;
+	return NULL;
 }
 
 /*Function that gets the next available virtual page
 */
-void *get_next_avail(int num_pages) {
+void *get_next_avail_virt(int num_pages) {
 
 	//Use virtual address bitmap to find the next free page
 	int curr_page; int num_free = 0;
@@ -351,13 +351,13 @@ void *get_next_avail(int num_pages) {
 			
 			num_pages++;
 			if(num_free = num_pages){
-				return curr_page;
+				return virt_bit_map[curr_page];
 			}
 		}
 	}
 	
 	//could not find free pages
-	return -1;
+	return NULL;
 
 }
 
@@ -366,18 +366,27 @@ and used by the benchmark
 */
 void *myalloc(unsigned int num_bytes) {
 
-    //HINT: If the physical memory is not yet initialized, then allocate and initialize.
+	//HINT: If the physical memory is not yet initialized, then allocate and initialize.
 	if ( !init ) SetPhysicalMem();
+
 	//allocate in term of n * pages not n < page_size
+	no_pgs = ceil(num_bytes/PGSIZE); 
+
 	//return first virtual address of the allocated virtual page
+	void* freePages = get_next_avail_virt(no_pages);
+	
 	//give out pages not starting at 0x0, only a multiple of 4KB
+	
+	//change the bitmap to be in use
+	
+	//map a new page
 
+	//mark which physical pages to use
 
-
-   /* HINT: If the page directory is not initialized, then initialize the
-   page directory. Next, using get_next_avail(), check if there are free pages. If
-   free pages are available, set the bitmaps and map a new page. Note, you will 
-   have to mark which physical pages are used. */
+   	/* HINT: If the page directory is not initialized, then initialize the
+   	page directory. Next, using get_next_avail(), check if there are free pages. If
+   	free pages are available, set the bitmaps and map a new page. Note, you will 
+   	have to mark which physical pages are used. */
 
     return NULL;
 }
