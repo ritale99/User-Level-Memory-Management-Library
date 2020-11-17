@@ -21,11 +21,17 @@
 typedef unsigned long pte_t;	//store phys addr
 //typedef void * pte_t;
 
+typedef struct pte_t_node {
+	unsigned int index_in_virt_bitmap;
+	pte_t base_va_addr;
+	pte_t * data;
+} pte_t_node;
+
 // Represents a page directory entry
 //typedef unsigned long pde_t;	//essentially a pte_t *;
-typedef pte_t * pde_t;
+typedef pte_t_node * pde_t;
 
-#define TLB_SIZE 120	//120 entries?
+#define TLB_SIZE 120	//120 entries
 
 //Structure to represents TLB
 struct tlb {
@@ -37,6 +43,18 @@ struct tlb {
 };
 struct tlb tlb_store;
 
+
+typedef struct next_avail_node {
+	int index;
+	void * addr;
+	struct next_avail_node * next;
+} next_avail_node;
+
+typedef struct int3_node {
+	int outer;
+	int inner;
+	int offset;
+} int3_node;
 //NOTE: keep page_dir and bitmap away from memory we are simulating.
 
 //physical memory
@@ -56,9 +74,9 @@ unsigned int virt_page_count;
 unsigned int phys_page_count;
 unsigned int outer_bit_count;
 unsigned int inner_bit_count;
-unsigned int outer_page_count;
-unsigned int inner_page_count;
 unsigned int offset_bit_count;
+unsigned int outer_page_count;	//number of page tables we are allow to have
+unsigned int inner_page_count;	//number of pages per table we are allow to have
 
 
 void print_TLB_missrate();
@@ -68,16 +86,28 @@ int PageMap(pde_t *pgdir, void *va, void* pa);
 bool check_in_tlb(void *va);
 void put_in_tlb(void *va, void *pa);
 void *myalloc(unsigned int num_bytes);
+next_avail_node* get_next_avail_phys (int num_pages);
+next_avail_node* get_next_avail_virt (int num_pages);
 void myfree(void *va, int size);
 void PutVal(void *va, void *val, int size);
 void GetVal(void *va, void *val, int size);
 void MatMult(void *mat1, void *mat2, int size, void *answer);
 
 //helper function
-//convert addr to binary value
-char * hextobin(void *addr);
+
+//free a link list
+void freeLL(next_avail_node * head);
+
+void FreeSelectedVirt(int index, int size);
+
+void FreeSelectedPhys(next_avail_node * node);
+
+//get 3 decimal value (outer, inner, offset) of the binary string
+int3_node * Get3DecimalOfBin(void * addr);
 
 //convert a string of binary value to hexadecimal
-void * bintohex(char *bin);
+unsigned long bintohex(char *bin);
+
+void * ConvertIndexToVA(unsigned int index);
 
 #endif
