@@ -183,7 +183,7 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 	inner = node->inner;
 	offset = node->offset;
 	//debug
-	printf("%d\n%d\n%d\n", offset, inner, outer);
+	//printf("%d\n%d\n%d\n", offset, inner, outer);
 	free(node);
 
 	//check if outer's index value is greater than
@@ -236,7 +236,7 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 	//we can add the offset to that starting address to find our
 	//intended physical page
 
-	printf("return physical address: %x\n", ((pgdir[outer]->data[inner]) + offset));
+	//printf("return physical address: %x\n", ((pgdir[outer]->data[inner]) + offset));
 
 	//we are freeing the 3 decimal of bin not the actual entry
 	free(base_node);
@@ -697,7 +697,7 @@ void *myalloc(unsigned int num_bytes) {
 	free(ll_phys_node);
 	freeLL(virtNode);
 
-	printf("allocated\n");
+	//printf("allocated\n");
 
 	return ret_virt_addr;
 	/* HINT: If the page directory is not initialized, then initialize the
@@ -783,6 +783,55 @@ void PutVal(void *va, void *val, int size) {
 	 the contents of "val" to a physical page. NOTE: The "size" value can be larger
 	 than one page. Therefore, you may have to find multiple pages using Translate()
 	 function.*/
+	if(va == NULL || page_dir == NULL || size <= 0) return;
+	//get the physical address
+	void * pa = NULL; void * o_va = va;
+	pte_t_node * va_base_node = NULL;
+	int3_node * va_3_int_node = NULL;
+	unsigned int no_pgs = ceil((float)size / PGSIZE);
+	unsigned long delta_size = 0;
+	unsigned int ith_pgs;
+	unsigned int o_size = size;
+	unsigned int outer = 0, inner = 0, offset = 0;
+
+
+	//loop through each pages we need to put value in
+	for(ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++ ){
+		//get the physical pages
+		pa = (void*) Translate(page_dir, (void*)(va));
+		//return if we could not
+		if(pa == NULL) return;
+		if(ith_pgs == 0){
+			unsigned int _offset = 0;
+			unsigned long diff = 0;
+			//get the 3 decimal values of va
+			va_3_int_node = Get3DecimalOfBin(va);
+			if(va_3_int_node == NULL) {
+				return;
+			}
+			_offset = va_3_int_node->offset;
+			free(va_3_int_node);
+			//check if offset is out of bound
+			if(_offset >= PGSIZE) return;
+			//calculate the delta size based on offset
+			if(size+_offset < PGSIZE)
+				delta_size = size;
+			else
+				delta_size = PGSIZE - _offset;
+			memcpy(pa, val, (size_t) delta_size);
+		}else if(ith_pgs > 0 && ith_pgs < no_pgs){
+			delta_size = PGSIZE;
+			memcpy(pa, (val + (o_size - size)), (size_t) delta_size);
+		}else{
+			delta_size = size;
+			memcpy(pa, (val + (o_size - size)), (size_t) delta_size);
+		}
+		//increment our va by delta size
+		va = (void*) ((unsigned long) va + delta_size);
+		//decrease the size we have to deeal with
+		size -= delta_size;
+	}
+	va = o_va;
 
 }
 
@@ -794,6 +843,56 @@ void GetVal(void *va, void *val, int size) {
 	 If you are implementing TLB,  always check first the presence of translation
 	 in TLB before proceeding forward */
 
+	//check tlb and get the physical page based on va
+	//since va+size can be multiple pages
+	if(va == NULL || val == NULL || page_dir == NULL || size <= 0 ) return;
+	//physical address
+	void * pa = NULL;
+	int3_node * va_3_int_node = NULL;
+	unsigned int no_pgs = ceil((float) size / PGSIZE);
+	unsigned long delta_size = 0;
+	unsigned int ith_pgs;
+	unsigned int o_size = size;
+	unsigned int outer = 0, inner = 0, offset = 0;
+
+	//loop through each pages we need to put value in
+	for (ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++) {
+		//get the physical pages
+		pa = (void*) Translate(page_dir, (void*) (va));
+		//return if we could not
+		if (pa == NULL)
+			return;
+		if (ith_pgs == 0) {
+			unsigned int _offset = 0;
+			unsigned long diff = 0;
+			//get the 3 decimal values of va
+			va_3_int_node = Get3DecimalOfBin(va);
+			if (va_3_int_node == NULL) {
+				return;
+			}
+			_offset = va_3_int_node->offset;
+			free(va_3_int_node);
+			//check if offset is out of bound
+			if (_offset >= PGSIZE)
+				return;
+			//calculate the delta size based on offset
+			if(size+_offset < PGSIZE)
+				delta_size = size;
+			else
+				delta_size = PGSIZE - _offset;
+			memcpy(val, pa, (size_t) delta_size);
+		} else if (ith_pgs > 0 && ith_pgs < no_pgs) {
+			delta_size = PGSIZE;
+			memcpy((val + (o_size - size)), pa, (size_t) delta_size);
+		} else {
+			delta_size = size;
+			memcpy((val + (o_size - size)), pa, (size_t) delta_size);
+		}
+		//increment our va by delta size
+		va = (void*) ((unsigned long) va + delta_size);
+		//decrease the size we have to deal with
+		size -= delta_size;
+	}
 }
 
 /*
@@ -809,6 +908,38 @@ void MatMult(void *mat1, void *mat2, int size, void *answer) {
 	 getting the values from two matrices, you will perform multiplication and
 	 store the result to the "answer array"*/
 
+	//matrices are square, column = row, and size is column
+	if(mat1 == NULL || mat2 == NULL || answer == NULL || page_dir == NULL || size <= 0) return;
+	unsigned long addr_mat1 = 0, addr_mat2 = 0, addr_answer = 0;
+	int mat1_i_value = 0, mat2_i_value = 0;
+	int i, j, d, sub_answer = 0;
+	int sizeof_int = sizeof(int);
+	//loop through row of mat1
+	for(i = 0; i < size; i++){
+		//loop through each col of mat2
+		for(d = 0; d < size; d++){
+			sub_answer = 0;
+			addr_mat1 = 0;
+			addr_mat2 = 0;
+			//loop through each row of mat2
+			for(j = 0; j< size; j++){
+				//get address of mat1 + offset
+				addr_mat1 = (unsigned long) mat1 + (i * size * sizeof_int + j * sizeof_int);
+				//get address of mat2 + offset
+				addr_mat2 = (unsigned long) mat2 + (j * size * sizeof_int + d * sizeof_int);
+				//get value at addr_mat1 and store at mat1_i_value
+				GetVal((void*) addr_mat1, &mat1_i_value, sizeof_int);
+				//get value at addr_mat2 and store at mat2_i_value
+				GetVal((void*) addr_mat2, &mat2_i_value, sizeof_int);
+				//add the product of the two to the sub_answer
+				sub_answer += mat1_i_value * mat2_i_value;
+			}
+			//get address of answer + offset
+			addr_answer = (unsigned long) answer + (i * size * sizeof_int + d * sizeof_int);
+			//put the sub_answer value into the addr_answer
+			PutVal((void*) addr_answer, &sub_answer, sizeof_int);
+		}
+	}
 }
 
 //helper function
@@ -955,3 +1086,4 @@ void* ConvertIndexToVA(unsigned int index){
 	free(finalStr);*/
 	return (void*)final_addr;
 }
+
