@@ -5,6 +5,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <time.h>
+#include <pthread.h>
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
 
@@ -33,14 +35,25 @@ typedef pte_t_node * pde_t;
 
 #define TLB_SIZE 120	//120 entries
 
+//entry of the TLB contains the va, pa and time of insertion
+struct tlb_entry{
+	void *va;
+	void *pa;
+	time_t time;
+};
+
 //Structure to represents TLB
+//Contains array of tlb_entry structs
 struct tlb {
 
-    //Assume your TLB is a direct mapped TLB of TBL_SIZE (entries)
-    //You must also define wth TBL_SIZE in this file.
-    //Assume each bucket to be 4 bytes
+    	//Assume your TLB is a direct mapped TLB of TLB_SIZE (entries)
+    	//You must also define wth TBL_SIZE in this file.
+    	//Assume each bucket to be 4 bytes
+	struct tlb_entry entries[TLB_SIZE];
+	
 
 };
+
 struct tlb tlb_store;
 
 
@@ -92,6 +105,9 @@ void myfree(void *va, int size);
 void PutVal(void *va, void *val, int size);
 void GetVal(void *va, void *val, int size);
 void MatMult(void *mat1, void *mat2, int size, void *answer);
+double misses;
+double accesses; 
+
 
 //helper function
 

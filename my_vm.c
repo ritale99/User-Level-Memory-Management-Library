@@ -2,13 +2,62 @@
 
 int init;
 
+
+//initialize a direct mapped TLB when initializing a page table
+
 /*
  * Part 2: Add a virtual to physical page translation to the TLB.
  * Feel free to extend the function arguments or return type.
  */
-int add_TLB(void *va, void *pa) {
+int put_in_TLB(void *va, void *pa) {
 
 	/*Part 2 HINT: Add a virtual to physical page translation to the TLB */
+	//After adding new page into translation table entry, also add a translation to the TLB using this
+	
+	int indexMaxTime = 0;
+
+	//set the max time to the first time we see
+	time_t maxTime = tlb_store.entries[0].time; 
+	
+	//look for empty spot in the tlb
+	int i;
+	for(i =0; i< TLB_SIZE; i++){
+		
+		//if the spot is not empty
+		if((tlb_store.entries[i].va != NULL)){
+			//check the max time again
+			double time_dif = difftime(maxTime,tlb_store.entries[i].time);
+		
+			if(time_dif > 0){
+				indexMaxTime = i;
+				maxTime = tlb_store.entries[i].time;
+			}
+			//update indexMaxTime and maxTime
+		}	
+	
+		//check if the spot is empty
+		if((tlb_store.entries[i]).va ==  NULL){
+			
+			time_t seconds = time(NULL);
+
+			(tlb_store.entries[i]).va = va;
+			(tlb_store.entries[i]).pa = pa;
+			(tlb_store.entries[i]).time = seconds;
+			
+			//found a spot to insert the translation
+			return 1;
+		
+		}
+		
+	}
+
+	//if reached here, need to evict the min 
+	
+	tlb_store.entries[indexMaxTime].va =va;
+	tlb_store.entries[indexMaxTime].pa = pa;
+	tlb_store.entries[indexMaxTime].time = time(NULL);
+
+	
 
 	return -1;
 }
@@ -20,10 +69,38 @@ int add_TLB(void *va, void *pa) {
  */
 pte_t *
 check_TLB(void *va) {
-
+	//use the prescence of a translation in the TLB before performing translation in translate()
 	/* Part 2: TLB lookup code here */
 
+	//loop through the tlb, and look for the va
+	int i = 0;
+	for(i=0; i<TLB_SIZE; i++){
+		if(tlb_store.entries[i].va == va){
+
+			//found the translation, return the physical address
+			//check return type
+			return (pte_t*)(tlb_store.entries[i].pa);
+
+		}
+	}
+
+	return NULL;
 }
+
+//init the tlb values to NULL
+void init_tlb(){
+	
+	int i;
+	for(i = 0; i< TLB_SIZE; i++){
+		tlb_store.entries[i].va = NULL;
+		tlb_store.entries[i].pa = NULL;
+		tlb_store.entries[i].time = NULL;
+	}
+	
+	misses = 0;
+	accesses = 0;
+}
+
 
 /*
  * Part 2: Print TLB miss rate.
@@ -31,8 +108,13 @@ check_TLB(void *va) {
  */
 void print_TLB_missrate() {
 	double miss_rate = 0;
+	
+	miss_rate = misses/accesses;
 
 	/*Part 2 Code here to calculate and print the TLB miss rate*/
+	
+	printf("number of tlb misses: %lf, number of tlb accesses: %lf", misses, accesses);
+
 
 	fprintf(stderr, "TLB miss rate %lf \n", miss_rate);
 }
@@ -114,6 +196,7 @@ void SetPhysicalMem() {
 	memset(virt_bit_map, 0, sizeof(char) * virt_page_count);
 
 	//printf("size of physical memory: %lld\nphysical page count: %lld\nvirtual page count: %lld\n", sizeof(mem), phys_page_count, virt_page_count);
+	init_tlb();
 	init = 1;
 
 	//TEMPT
@@ -311,6 +394,7 @@ int PageMap(pde_t *pgdir, void *va, void *pa) {
 			free(pte_node);
 			return -1;
 		}
+
 		memset(pgtable, NULL, sizeof(pte_t) * pgtable_size);
 		//assign pgtable and va to pte_node
 		pte_node->data = pgtable;
@@ -320,6 +404,8 @@ int PageMap(pde_t *pgdir, void *va, void *pa) {
 		//set the first index of pgtable equal to pa,
 		//since va -> pa, and va is base virtual address
 		pgtable[0] = (unsigned long)pa;
+
+
 		return 0;
 	}
 	selpgtable = selpgtable_node->data;
@@ -677,6 +763,9 @@ void *myalloc(unsigned int num_bytes) {
 					page_dir[outer] = NULL;
 				}
 			}
+			//also add the page into the TLB
+			put_in_TLB(virt_addr, node->addr); 
+
 			freeLL(ll_phys_node);
 			freeLL(virtNode);
 			return NULL;
@@ -798,7 +887,21 @@ void PutVal(void *va, void *val, int size) {
 	//loop through each pages we need to put value in
 	for(ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++ ){
 		//get the physical pages
-		pa = (void*) Translate(page_dir, (void*)(va));
+		
+		//check the TLB first
+		pa = (void*)check_TLB((void*) va); 	
+		accesses++;
+
+		//if we could not find result in TLB
+		if(pa == NULL){
+			pa = (void*) Translate(page_dir, (void*)(va));
+			
+			if(pa != NULL){
+				put_in_TLB(va,pa);
+			}
+
+			misses++;
+		}
 		//return if we could not
 		if(pa == NULL) return;
 		if(ith_pgs == 0){
@@ -858,7 +961,23 @@ void GetVal(void *va, void *val, int size) {
 	//loop through each pages we need to put value in
 	for (ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++) {
 		//get the physical pages
-		pa = (void*) Translate(page_dir, (void*) (va));
+		
+
+		//check the TLB first
+		pa = (void*)check_TLB((void*) va);
+		accesses++;
+
+		//if we did not find a result in our TLB
+		if(pa == NULL){ 
+			pa = (void*) Translate(page_dir, (void*) (va));
+			
+			if(pa != NULL){
+				put_in_TLB(va,pa);
+			}
+			
+			misses++;
+		}
+
 		//return if we could not
 		if (pa == NULL)
 			return;
