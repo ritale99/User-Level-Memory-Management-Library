@@ -1,0 +1,26 @@
+Team: 
+
+1. We implemented our virtual memory (vm) function using:
+	a. an array of char pointer to serve as our main memory
+	b. an array of pde_t pointer to serve as our outer page table.
+	the pde_t is just a node containing extra meta-data such as the 
+	base virtual address that was chosen to go onto this outer page
+	table, and then the array of pte_t itself.
+	c. an array of pte_t inside each of the pte_t_node served as 
+	our inner table and store the physical page that are allocated 
+	by myalloc.
+	d. 2 arrays of char to serve as our virtual and physical bit map
+	telling us which page were occupied and which were not
+
+2. 
+
+3.
+
+4. The possible issue with the code, is when user gives a size to myfree
+that is less than the original size they've requested in myalloc, as in
+the system will free the requested size, but leaves the remaining bytes
+occupied without a way to clear them. Also because of issue of 0x0 outer 
+we've chosen not to use the 0th index, and thus loses out on spaces.
+
+5. The most difficult part of solving this project was correlating the 
+virtual memory to physical memory
