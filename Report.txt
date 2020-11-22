@@ -1,4 +1,5 @@
-Team: 
+Team: Rithvik Aleshetty rra76
+      Minhesota Geusic mtg110
 
 1. We implemented our virtual memory (vm) function using:
 	a. an array of char pointer to serve as our main memory
@@ -12,9 +13,9 @@ Team:
 	d. 2 arrays of char to serve as our virtual and physical bit map
 	telling us which page were occupied and which were not
 
-2. 
+2. The TLB miss rate was 75 misses for 400 accesses for a miss rate of 18.75%.
 
-3.
+3. 
 
 4. The possible issue with the code, is when user gives a size to myfree
 that is less than the original size they've requested in myalloc, as in
