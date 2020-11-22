@@ -1,7 +1,13 @@
 #include "my_vm.h"
 
-int init;
+pthread_mutex_t initialize_lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t page_dir_lock;
+pthread_mutex_t phys_bit_map_lock;
+pthread_mutex_t virt_bit_map_lock;
+pthread_mutex_t mem_lock;
+pthread_mutex_t tlb_lock;
 
+int init;
 
 //initialize a direct mapped TLB when initializing a page table
 
@@ -13,52 +19,51 @@ int put_in_TLB(void *va, void *pa) {
 
 	/*Part 2 HINT: Add a virtual to physical page translation to the TLB */
 	//After adding new page into translation table entry, also add a translation to the TLB using this
-	
+	pthread_mutex_lock(&tlb_lock);
 	int indexMaxTime = 0;
 
 	//set the max time to the first time we see
-	time_t maxTime = tlb_store.entries[0].time; 
-	
+	time_t maxTime = tlb_store.entries[0].time;
+
 	//look for empty spot in the tlb
 	int i;
 	for(i =0; i< TLB_SIZE; i++){
-		
+
 		//if the spot is not empty
 		if((tlb_store.entries[i].va != NULL)){
 			//check the max time again
 			double time_dif = difftime(maxTime,tlb_store.entries[i].time);
-		
+
 			if(time_dif > 0){
 				indexMaxTime = i;
 				maxTime = tlb_store.entries[i].time;
 			}
 			//update indexMaxTime and maxTime
-		}	
-	
+		}
+
 		//check if the spot is empty
 		if((tlb_store.entries[i]).va ==  NULL){
-			
+
 			time_t seconds = time(NULL);
 
 			(tlb_store.entries[i]).va = va;
 			(tlb_store.entries[i]).pa = pa;
 			(tlb_store.entries[i]).time = seconds;
-			
+
+			pthread_mutex_unlock(&tlb_lock);
 			//found a spot to insert the translation
 			return 1;
-		
+
 		}
-		
+
 	}
 
-	//if reached here, need to evict the min 
-	
+	//if reached here, need to evict the min
+
 	tlb_store.entries[indexMaxTime].va =va;
 	tlb_store.entries[indexMaxTime].pa = pa;
 	tlb_store.entries[indexMaxTime].time = time(NULL);
-
-	
-
+	pthread_mutex_unlock(&tlb_lock);
 	return -1;
 }
 
@@ -71,32 +76,31 @@ pte_t *
 check_TLB(void *va) {
 	//use the prescence of a translation in the TLB before performing translation in translate()
 	/* Part 2: TLB lookup code here */
-
+	pthread_mutex_lock(&tlb_lock);
 	//loop through the tlb, and look for the va
 	int i = 0;
 	for(i=0; i<TLB_SIZE; i++){
 		if(tlb_store.entries[i].va == va){
-
 			//found the translation, return the physical address
 			//check return type
-			return (pte_t*)(tlb_store.entries[i].pa);
-
+			pte_t * ret = (pte_t *)(tlb_store.entries[i].pa);
+			pthread_mutex_unlock(&tlb_lock);
+			return ret;
 		}
 	}
-
+	pthread_mutex_unlock(&tlb_lock);
 	return NULL;
 }
 
 //init the tlb values to NULL
 void init_tlb(){
-	
 	int i;
 	for(i = 0; i< TLB_SIZE; i++){
 		tlb_store.entries[i].va = NULL;
 		tlb_store.entries[i].pa = NULL;
 		tlb_store.entries[i].time = NULL;
 	}
-	
+
 	misses = 0;
 	accesses = 0;
 }
@@ -108,11 +112,11 @@ void init_tlb(){
  */
 void print_TLB_missrate() {
 	double miss_rate = 0;
-	
+
 	miss_rate = misses/accesses;
 
 	/*Part 2 Code here to calculate and print the TLB miss rate*/
-	
+
 	printf("number of tlb misses: %lf, number of tlb accesses: %lf", misses, accesses);
 
 
@@ -123,11 +127,14 @@ void print_TLB_missrate() {
  Function responsible for allocating and setting your physical memory
  */
 void SetPhysicalMem() {
-
-	//Allocate physical memory using mmap or malloc; this is the total size of
-	//your memory you are simulating
-	if (init)
+	//lock the init
+	pthread_mutex_lock(&initialize_lock);
+	//if we somehow already initialized the library, return
+	if (init) {
+		pthread_mutex_unlock(&initialize_lock);
 		return;
+	}
+	//initialize any additional mutex
 
 	//HINT: Also calculate the number of physical and virtual pages and allocate
 	//virtual and physical bitmaps and initialize them
@@ -150,6 +157,7 @@ void SetPhysicalMem() {
 	offset_bit_count = (unsigned int) ceil(log(PGSIZE) / log(2));
 	if (offset_bit_count >= 32) {
 		printf("offset too high\n");
+		pthread_mutex_unlock(&initialize_lock);
 		exit(0);
 	}
 	//calculate the remain bit to distribute
@@ -167,12 +175,15 @@ void SetPhysicalMem() {
 	//allocate mem
 	mem = (char*) malloc(sizeof(char) * MEMSIZE);
 	//check if mem was allocated
-	if (mem == NULL)
+	if (mem == NULL){
+		pthread_mutex_unlock(&initialize_lock);
 		return;
+	}
 	//allocate page directory
 	page_dir = (pde_t*) malloc(sizeof(pde_t) * phys_page_count);
 	if (page_dir == NULL) {
 		free(mem);
+		pthread_mutex_unlock(&initialize_lock);
 		exit(0);
 	}
 	//create physical bit map
@@ -180,6 +191,7 @@ void SetPhysicalMem() {
 	if (phys_bit_map == NULL) {
 		free(mem);
 		free(page_dir);
+		pthread_mutex_unlock(&initialize_lock);
 		exit(0);
 	}
 	//create virtual bit map
@@ -188,48 +200,24 @@ void SetPhysicalMem() {
 		free(phys_bit_map);
 		free(page_dir);
 		free(mem);
+		pthread_mutex_unlock(&initialize_lock);
 		exit(0);
 	}
-
-	//initialize
+	//set all phys and bit to 0
 	memset(phys_bit_map, 0, sizeof(char) * phys_page_count);
 	memset(virt_bit_map, 0, sizeof(char) * virt_page_count);
-
-	//printf("size of physical memory: %lld\nphysical page count: %lld\nvirtual page count: %lld\n", sizeof(mem), phys_page_count, virt_page_count);
+	//initialize tlb
 	init_tlb();
 	init = 1;
 
-	//TEMPT
-	//in this test sample I allocated 3 things
-	//int *, char *, and char *, of size int, char * 12, char * 12
-	//respectively. I then allocate space for a temp page table
-	//and store each of the created item in order given below.
-	//The temp page table is then stored in the 2nd index of the
-	//page directory
-	/*void * addr1 = NULL;
-	void * addr2 = NULL;
-	void * addr3 = NULL;
+	if ( pthread_mutex_init(&page_dir_lock, NULL) != 0 ) exit(0);
+	if ( pthread_mutex_init(&phys_bit_map_lock, NULL) != 0 ) exit(0);
+	if ( pthread_mutex_init(&virt_bit_map_lock, NULL) != 0 ) exit(0);
+	if ( pthread_mutex_init(&mem_lock, NULL) != 0 ) exit(0);
+	if ( pthread_mutex_init(&tlb_lock, NULL) != 0 ) exit (0);
 
-	int * tempt_int = (int *) malloc(sizeof(int));
-	*tempt_int = 90;
-
-	char * char_arr = (char *) malloc(sizeof(char) * 12);
-	char_arr = "hello world";
-
-	char * char_arr2 = (char *) malloc(sizeof(char) * 12);
-	char_arr2 = "test string";
-
-	addr1 = &char_arr;
-	addr2 = &tempt_int;
-	addr3 = &char_arr2;
-
-	pte_t * tempt_page_table = (pte_t *) (malloc(sizeof(pte_t) * PGSIZE));
-	tempt_page_table[0] = (pte_t) char_arr;
-	tempt_page_table[1] = (pte_t) tempt_int;
-	tempt_page_table[2] = (pte_t) char_arr2;
-
-	page_dir[1] = tempt_page_table;*/
-	//TEMPT
+	//unlock initialize
+	pthread_mutex_unlock(&initialize_lock);
 }
 
 /*
@@ -247,6 +235,7 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 
 	pde_t selPgTable_Node = NULL;
 	pte_t selPgTable_Entry = NULL;
+	pte_t * ret = NULL;
 
 	int3_node * node = NULL;
 	int3_node * base_node = NULL;
@@ -265,8 +254,6 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 	outer = node->outer - 1;
 	inner = node->inner;
 	offset = node->offset;
-	//debug
-	//printf("%d\n%d\n%d\n", offset, inner, outer);
 	free(node);
 
 	//check if outer's index value is greater than
@@ -288,6 +275,9 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 		return NULL;
 	}
 
+	//lock the page directory
+	pthread_mutex_lock(&page_dir_lock);
+
 	//we need to subtract the address? or the inner and offset
 	//by the base (the virtual address we received after calling mymalloc)
 
@@ -296,35 +286,34 @@ pte_t * Translate(pde_t *pgdir, void *va) {
 	selPgTable_Node = pgdir[outer];
 	if(selPgTable_Node == NULL || selPgTable_Node->data== NULL) {
 		printf("there was an error attempting to access selPgTable at %d\n", outer);
+		pthread_mutex_unlock(&page_dir_lock);
 		return NULL;
 	}
 	//get the base page va
 	baseVA = (void*) selPgTable_Node->base_va_addr;
 	if (baseVA == NULL) {
 		printf("base VA is an error\n");
+		pthread_mutex_unlock(&page_dir_lock);
 		return NULL;
 	}
 	//get the 3 decimal value of the bin
 	base_node = Get3DecimalOfBin(baseVA);
 	if (base_node == NULL) {
 		printf("error at 231\n");
+		pthread_mutex_unlock(&page_dir_lock);
 		return NULL;
 	}
 	//subtract the given va with the base VA received
+	//so we can get the relative differences
 	inner = inner - base_node->inner;
 	offset = offset - base_node->offset;
-
-	//since pte_t is a void *
-	//pte_t points to the starting address of a physical frame
-	//we can add the offset to that starting address to find our
-	//intended physical page
-
-	//printf("return physical address: %x\n", ((pgdir[outer]->data[inner]) + offset));
-
 	//we are freeing the 3 decimal of bin not the actual entry
 	free(base_node);
 	//return as pointer to pte_t + offset
-	return (pte_t *) ((pgdir[outer]->data[inner]) + offset);
+	ret = (pte_t *)((pgdir[outer]->data[inner]) + offset);
+	//unlock page directory
+	pthread_mutex_unlock(&page_dir_lock);
+	return ret;
 }
 
 /*
@@ -380,6 +369,8 @@ int PageMap(pde_t *pgdir, void *va, void *pa) {
 		PGSIZE);
 		return -1;
 	}
+	//attempt to lock the page directory
+	pthread_mutex_lock(&page_dir_lock);
 	selpgtable_node = pgdir[outer];
 	//check if page table exist in page directory using outer
 	//if no page table exist at outer, then create a new one
@@ -387,11 +378,15 @@ int PageMap(pde_t *pgdir, void *va, void *pa) {
 		pte_t_node * pte_node = (pte_t_node *) malloc(sizeof(pte_t_node));
 		pte_t * pgtable = NULL;
 		unsigned int pgtable_size = pow(2, inner_bit_count);
-		if(pte_node == NULL) return -1;
+		if(pte_node == NULL) {
+			pthread_mutex_unlock(&page_dir_lock);
+			return -1;
+		}
 		//i am assuming we allocate page table as big as inner_bit_count
 		pgtable = (pte_t*) malloc(sizeof(pte_t) * pgtable_size);
 		if(pgtable == NULL){
 			free(pte_node);
+			pthread_mutex_unlock(&page_dir_lock);
 			return -1;
 		}
 
@@ -404,151 +399,40 @@ int PageMap(pde_t *pgdir, void *va, void *pa) {
 		//set the first index of pgtable equal to pa,
 		//since va -> pa, and va is base virtual address
 		pgtable[0] = (unsigned long)pa;
-
-
+		//unlock the page directory
+		pthread_mutex_unlock(&page_dir_lock);
 		return 0;
 	}
 	selpgtable = selpgtable_node->data;
 	//get the 3 decimal value of base va at this pagetable
 	node = Get3DecimalOfBin((void*)selpgtable_node->base_va_addr);
-	if(node == NULL) return -1;
+	if(node == NULL) {
+		pthread_mutex_unlock(&page_dir_lock);
+		return -1;
+	}
 	baseOuter = node->outer; baseInner = node->inner; baseOffset = node->offset;
 	free(node);
 	inner -= baseInner;
 	//check if if page at inner exist
 	void* addr = (void*)(selpgtable[inner]);
+	//if there is no such mapping, make one
 	if((void*)(selpgtable[inner]) == NULL){
 		selpgtable[inner] = (unsigned long)pa;
+		pthread_mutex_unlock(&page_dir_lock);
 		return 0;
 	}
 	//return since there is nothing to do
-/*	void* baseVA = NULL;
-
-	pde_t selPgTable_Node = NULL;
-	pte_t selPgTable_Entry = NULL;
-
-	int3_node * node = NULL;
-	int3_node * node_base = NULL;
-
-	int outer = 0;
-	int inner = 0;
-	int offset = 0;
-
-	//retrieve the bit string for the given address
-	char * bin = hextobin(va);
-	if (bin == NULL) {
-		printf("an error occurred on 280\n");
-		free(node);
-		return -1;
-	}
-	//get the 3 decimal value of the bin
-	node = Get3DecimalOfBin(bin);
-	if(node == NULL) {
-		printf("error at 239\n");
-		free(bin);
-		return -1;
-	}
-	outer = node->outer;
-	inner = node->inner;
-	offset = node->offset;
-	//debug
-	printf("%s\n", bin);
-	printf("%d\n%d\n%d\n", offset, inner, outer);
-	//free bin string
-	free(bin);
-	//check if outer's index value is greater than
-	//physical page count
-	if (outer >= outer_page_count) {
-		printf(
-				"Requested page directory %d is greater than the physical page count: %d\n",
-				outer, outer_page_count);
-		return -1;
-	}
-	if (inner >= inner_page_count) {
-		printf(
-				"Requested inner page table %d is greater than the inner page table count %d\n",
-				inner, inner_page_count);
-	}
-	if (offset >= PGSIZE) {
-		printf("Requested offset: %d is greater than the PGSIZE: %d\n", offset,
-				PGSIZE);
-		return -1;
-	}
-
-	//get the page table node at outer index
-	selPgTable_Node = pgdir[outer];
-	//error checkingn
-	if (selPgTable_Node == NULL || selPgTable_Node->data == NULL) {
-		//debug
-		printf("there was an error attempting to access selPgTable at %d\n",
-				outer);
-		return -1;
-	}
-
-	//this can probably be removed
-	if (selPgTable_Node->size == 0) {
-		//debug
-		printf("there is nothing stored in this page table\n");
-		return -1;
-	}
-
-	//get the base va given the outer we received from va
-	baseVA = (void*) selPgTable_Node->base_va_addr;
-	//check null
-	if (baseVA == NULL) {
-		//debug
-		printf("base VA is an error at 324\n");
-		return -1;
-	}
-	bin = hextobin(va);
-	if (bin == NULL) {
-		//debug
-		printf("error at 329\n");
-		return -1;
-	}
-	//get the 3 decimal value of the bin
-	node_base = Get3DecimalOfBin(bin);
-	if (node_base == NULL) {
-		//debug
-		printf("error at 335\n");
-		free(bin);
-		return -1;
-	}
-	free(bin);
-	//subtract the given va with the base VA received
-	inner = inner - node_base->inner;
-	offset = offset - node_base->offset;
-
-	//check if within bound
-	if(inner >= selPgTable_Node->size){
-		//deubg
-		printf("out of bound\n");
-		return -1;
-	}
-
-	//are we just doing replacement are do we extend the selected page table?
-	if ((void*)((pgdir[outer]->data[inner])) == NULL) {
-		//the mapping doesn't exist, enter it
-		pgdir[outer]->data[inner] = (pte_t)pa;
-		printf("New mapping was set");
-		return -1;
-	} else {
-		printf("The mapping exists");
-		return 0;
-	}
-	*/
+	pthread_mutex_unlock(&page_dir_lock);
 	return 0;
 }
 /*Function that gets the next available physical page
  */
 next_avail_node* get_next_avail_phys(int num_pages) {
 
-	//this is looking for free pages, find the starting
-	//address of the continuous free pages that matches
-	//num_pages
 	next_avail_node* node = (next_avail_node*)malloc(sizeof(next_avail_node));
 	if(node == NULL) return NULL;
-
+	//lock memoery and physical bit map
+	pthread_mutex_lock(&phys_bit_map_lock);
 	int curr_page;
 	int num_free = 0;
 	int first_page = -1;
@@ -565,12 +449,18 @@ next_avail_node* get_next_avail_phys(int num_pages) {
 		if (phys_bit_map[curr_page] == 0 && last_page_free) {
 			num_free++;
 			if (num_free == num_pages) {
+				//lock memory if we have found what we are looking for
+				pthread_mutex_lock(&mem_lock);
 				//return page address of first page
 				node->addr = &mem[first_page * PGSIZE];
 				node->index = first_page;
 				node->next = NULL;
 				for(i = 0 ; i < (curr_page - first_page); i++)
 					phys_bit_map[first_page + i] = 1;
+
+				//unlock memory and physical bit map mutex
+				pthread_mutex_unlock(&phys_bit_map_lock);
+				pthread_mutex_unlock(&mem_lock);
 				return node;
 			}
 		}
@@ -581,15 +471,22 @@ next_avail_node* get_next_avail_phys(int num_pages) {
 			num_free = 1;
 			first_page = curr_page;
 			if (num_free == num_pages){
+				//lock memory if we found what we are looking for
+				pthread_mutex_unlock(&mem_lock);
 				node->addr = &mem[curr_page * PGSIZE];
 				node->index = curr_page;
 				node->next = NULL;
 				phys_bit_map[first_page] = 1;
+
+				//unlock memory and physical bit map mutex
+				pthread_mutex_unlock(&phys_bit_map_lock);
+				pthread_mutex_unlock(&mem_lock);
 				return node;
 			}
 		}
 	}
 	//could not find free pages
+	pthread_mutex_unlock(&phys_bit_map_lock);
 	return NULL;
 }
 
@@ -601,6 +498,7 @@ next_avail_node * get_next_avail_virt(int num_pages) {
 	//matching num_pages
 	next_avail_node* node = (next_avail_node*) malloc(sizeof(next_avail_node));
 	if (node == NULL) return NULL;
+	pthread_mutex_lock(&virt_bit_map_lock);
 	//this is looking for free pages, find the starting
 	//address of the continuous free pages that matches
 	//num_pages
@@ -623,6 +521,7 @@ next_avail_node * get_next_avail_virt(int num_pages) {
 				node->addr = ConvertIndexToVA(first_page + 1);
 				if(node->addr == NULL) {
 					free(node);
+					pthread_mutex_unlock(&virt_bit_map_lock);
 					return NULL;
 				}
 				node->index = first_page;
@@ -630,6 +529,7 @@ next_avail_node * get_next_avail_virt(int num_pages) {
 				for( i = 0 ; i < (curr_page - first_page); i++)
 					virt_bit_map[first_page+i] = 1;
 				//return page address of first page
+				pthread_mutex_unlock(&virt_bit_map_lock);
 				return node;
 			}
 		}
@@ -643,19 +543,20 @@ next_avail_node * get_next_avail_virt(int num_pages) {
 				node->addr = ConvertIndexToVA(first_page + 1);
 				if (node->addr == NULL) {
 					free(node);
+					pthread_mutex_unlock(&virt_bit_map_lock);
 					return NULL;
 				}
 				node->index = first_page;
 				node->next = NULL;
 				virt_bit_map[first_page] = 1;
+				pthread_mutex_unlock(&virt_bit_map_lock);
 				return node;
 			}
 		}
 	}
-
 	//could not find free pages
+	pthread_mutex_unlock(&virt_bit_map_lock);
 	return NULL;
-
 }
 
 /* Function responsible for allocating pages
@@ -712,10 +613,10 @@ void *myalloc(unsigned int num_bytes) {
 			free(pgtable);
 
 			if(ll_phys_node != NULL){
-				//release all physical pages we've selected
-				FreeSelectedPhys(ll_phys_node);
 				//release all virtual page we've selected
 				FreeSelectedVirt(virtNode->index, no_pgs);
+				//release all physical pages we've selected
+				FreeSelectedPhys(ll_phys_node);
 			}
 			freeLL(ll_phys_node);
 			freeLL(virtNode);
@@ -742,8 +643,8 @@ void *myalloc(unsigned int num_bytes) {
 	node = ll_phys_node;
 	virt3DecimalNode = Get3DecimalOfBin(virtNode->addr);
 	if(virt3DecimalNode == NULL){
-		FreeSelectedPhys(ll_phys_node);
 		FreeSelectedVirt(virtNode->index, no_pgs);
+		FreeSelectedPhys(ll_phys_node);
 		freeLL(ll_phys_node);
 		freeLL(virtNode);
 		return NULL;
@@ -751,21 +652,26 @@ void *myalloc(unsigned int num_bytes) {
 	unsigned int outer = virt3DecimalNode->outer - 1;
 	pte_t_node * pteNode = NULL;
 	while(node != NULL){
+		//if we could not map the virtual address to the
+		//physical address then remove everything and return
 		if (PageMap(page_dir, virt_addr, node->addr) < 0) {
 			if (virt_addr != virtNode->addr) {
 				//free the page table in pg dir
-				FreeSelectedPhys(ll_phys_node);
 				FreeSelectedVirt(virtNode->index, no_pgs);
+				FreeSelectedPhys(ll_phys_node);
+				//lock the page directory
+				pthread_mutex_lock(&page_dir_lock);
 				if(page_dir[outer] != NULL){
 					free(page_dir[outer]->data);
 					pteNode = page_dir[outer];
 					free(pteNode);
 					page_dir[outer] = NULL;
 				}
+				pthread_mutex_unlock(&page_dir_lock);
 			}
 			//also add the page into the TLB
-			put_in_TLB(virt_addr, node->addr); 
-
+			put_in_TLB(virt_addr, node->addr);
+			//free link list
 			freeLL(ll_phys_node);
 			freeLL(virtNode);
 			return NULL;
@@ -775,41 +681,33 @@ void *myalloc(unsigned int num_bytes) {
 		node = node->next;
 	}
 	//mark the selected physical page as used
-	node = ll_phys_node;
+	/*node = ll_phys_node;
 	while(node != NULL){
 		i = node->index;
 		if (i >= 0 && i < phys_page_count) {
 			phys_bit_map[i] = 1;
 		}
 		node = node->next;
-	}
+	}*/
 	free(ll_phys_node);
 	freeLL(virtNode);
-
-	//printf("allocated\n");
 
 	return ret_virt_addr;
 	/* HINT: If the page directory is not initialized, then initialize the
 	 page directory. Next, using get_next_avail(), check if there are free pages. If
 	 free pages are available, set the bitmaps and map a new page. Note, you will
 	 have to mark which physical pages are used. */
-	//printf("allocated\n");
-	//return virt_addr;
 }
 
 /* Responsible for releasing one or more memory pages using virtual address (va)
  */
 void myfree(void *va, int size) {
-
-	//assumed va is the base address, and size equal to the amount of thing
-	//that was allocated in mymalloc
-
 	//Free the page table entries starting from this virtual address (va)
 	//Also mark the pages free in the bitmap
 	//Only free if the memory from "va" to va+size is valid
 
 	//error check
-	//if(page_dir == NULL || mem == NULL || va == NULL || size <= 0 || size >= MAX_MEMSIZE ) return;
+	if(page_dir == NULL || mem == NULL || va == NULL || size <= 0 || size >= MAX_MEMSIZE ) return;
 	pte_t physAddr = 0;
 	pte_t_node * pgtablenode = NULL;
 	pte_t * pgtable = NULL;
@@ -828,16 +726,20 @@ void myfree(void *va, int size) {
 	else if(inner + no_pgs > inner_page_count - 1) return;
 	else if(offset > PGSIZE - 1) return;
 
+	//lock page directory
+	pthread_mutex_lock(&page_dir_lock);
 	//retrieve page node from outer
 	pgtablenode = page_dir[outer];
 	if(pgtablenode == NULL) return;
 	if(pgtablenode->data == NULL) {
 		page_dir[outer] = NULL;
 		free(pgtablenode);
+		pthread_mutex_unlock(&page_dir_lock);
 		return;
 	}
 	//check if va is equal to base va
 	if(va != (void*)pgtablenode->base_va_addr){
+		pthread_mutex_unlock(&page_dir_lock);
 		return;
 	}
 	//mark all selected virtual pages as not selected
@@ -852,6 +754,7 @@ void myfree(void *va, int size) {
 		index = physAddr / PGSIZE;
 		//if index is out of bound just return
 		if(index >= phys_page_count){
+			pthread_mutex_unlock(&page_dir_lock);
 			return;
 		}
 		//set physical page to free
@@ -861,6 +764,7 @@ void myfree(void *va, int size) {
 	free(pgtablenode);
 	//disconnected the pagetable outer in page_ddir
 	page_dir[outer] = NULL;
+	pthread_mutex_unlock(&page_dir_lock);
 }
 
 /* The function copies data pointed by "val" to physical
@@ -883,19 +787,21 @@ void PutVal(void *va, void *val, int size) {
 	unsigned int o_size = size;
 	unsigned int outer = 0, inner = 0, offset = 0;
 
+	//lock the memory
+	pthread_mutex_lock(&mem_lock);
 
 	//loop through each pages we need to put value in
 	for(ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++ ){
 		//get the physical pages
-		
+
 		//check the TLB first
-		pa = (void*)check_TLB((void*) va); 	
+		pa = (void*)check_TLB((void*) va);
 		accesses++;
 
 		//if we could not find result in TLB
 		if(pa == NULL){
 			pa = (void*) Translate(page_dir, (void*)(va));
-			
+
 			if(pa != NULL){
 				put_in_TLB(va,pa);
 			}
@@ -903,19 +809,26 @@ void PutVal(void *va, void *val, int size) {
 			misses++;
 		}
 		//return if we could not
-		if(pa == NULL) return;
+		if(pa == NULL) {
+			pthread_mutex_unlock(&mem_lock);
+			return;
+		}
 		if(ith_pgs == 0){
 			unsigned int _offset = 0;
 			unsigned long diff = 0;
 			//get the 3 decimal values of va
 			va_3_int_node = Get3DecimalOfBin(va);
 			if(va_3_int_node == NULL) {
+				pthread_mutex_unlock(&mem_lock);
 				return;
 			}
 			_offset = va_3_int_node->offset;
 			free(va_3_int_node);
 			//check if offset is out of bound
-			if(_offset >= PGSIZE) return;
+			if(_offset >= PGSIZE) {
+				pthread_mutex_unlock(&mem_lock);
+				return;
+			}
 			//calculate the delta size based on offset
 			if(size+_offset < PGSIZE)
 				delta_size = size;
@@ -935,7 +848,7 @@ void PutVal(void *va, void *val, int size) {
 		size -= delta_size;
 	}
 	va = o_va;
-
+	pthread_mutex_unlock(&mem_lock);
 }
 
 /*Given a virtual address, this function copies the contents of the page to val*/
@@ -948,7 +861,7 @@ void GetVal(void *va, void *val, int size) {
 
 	//check tlb and get the physical page based on va
 	//since va+size can be multiple pages
-	if(va == NULL || val == NULL || page_dir == NULL || size <= 0 ) return;
+	if(va == NULL || val == NULL || page_dir == NULL || size <= 0 || mem == NULL) return;
 	//physical address
 	void * pa = NULL;
 	int3_node * va_3_int_node = NULL;
@@ -958,29 +871,33 @@ void GetVal(void *va, void *val, int size) {
 	unsigned int o_size = size;
 	unsigned int outer = 0, inner = 0, offset = 0;
 
+	pthread_mutex_lock(&mem_lock);
+
 	//loop through each pages we need to put value in
 	for (ith_pgs = 0; ith_pgs < no_pgs; ith_pgs++) {
 		//get the physical pages
-		
+
 
 		//check the TLB first
 		pa = (void*)check_TLB((void*) va);
 		accesses++;
 
 		//if we did not find a result in our TLB
-		if(pa == NULL){ 
+		if(pa == NULL){
 			pa = (void*) Translate(page_dir, (void*) (va));
-			
+
 			if(pa != NULL){
 				put_in_TLB(va,pa);
 			}
-			
+
 			misses++;
 		}
 
 		//return if we could not
-		if (pa == NULL)
+		if (pa == NULL){
+			pthread_mutex_unlock(&mem_lock);
 			return;
+		}
 		if (ith_pgs == 0) {
 			unsigned int _offset = 0;
 			unsigned long diff = 0;
@@ -992,8 +909,10 @@ void GetVal(void *va, void *val, int size) {
 			_offset = va_3_int_node->offset;
 			free(va_3_int_node);
 			//check if offset is out of bound
-			if (_offset >= PGSIZE)
+			if (_offset >= PGSIZE){
+				pthread_mutex_unlock(&mem_lock);
 				return;
+			}
 			//calculate the delta size based on offset
 			if(size+_offset < PGSIZE)
 				delta_size = size;
@@ -1012,6 +931,7 @@ void GetVal(void *va, void *val, int size) {
 		//decrease the size we have to deal with
 		size -= delta_size;
 	}
+	pthread_mutex_unlock(&mem_lock);
 }
 
 /*
@@ -1063,12 +983,15 @@ void MatMult(void *mat1, void *mat2, int size, void *answer) {
 
 //helper function
 void FreeSelectedVirt(int index, int size){
+	pthread_mutex_lock(&virt_bit_map_lock);
 	int i = index;
 	for (i = index; i < virt_page_count && i < index + size; i++) {
 		virt_bit_map[i] = 0;
 	}
+	pthread_mutex_unlock(&virt_bit_map_lock);
 }
 void FreeSelectedPhys(next_avail_node * node){
+	pthread_mutex_lock(&phys_bit_map_lock);
 	int i = 0;
 	while (node != NULL) {
 		i = node->index;
@@ -1077,6 +1000,7 @@ void FreeSelectedPhys(next_avail_node * node){
 		}
 		node = node->next;
 	}
+	pthread_mutex_unlock(&phys_bit_map_lock);
 }
 
 void freeLL (next_avail_node * head){
