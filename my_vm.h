@@ -7,6 +7,7 @@
 #include <math.h>
 #include <time.h>
 #include <pthread.h>
+
 //Assume the address space is 32 bits, so the max memory size is 4GB
 //Page size is 4KB
 
@@ -50,7 +51,7 @@ struct tlb {
     	//You must also define wth TBL_SIZE in this file.
     	//Assume each bucket to be 4 bytes
 	struct tlb_entry entries[TLB_SIZE];
-	
+
 
 };
 
@@ -91,7 +92,6 @@ unsigned int offset_bit_count;
 unsigned int outer_page_count;	//number of page tables we are allow to have
 unsigned int inner_page_count;	//number of pages per table we are allow to have
 
-
 void print_TLB_missrate();
 void SetPhysicalMem();
 pte_t* Translate(pde_t *pgdir, void *va);
@@ -106,7 +106,7 @@ void PutVal(void *va, void *val, int size);
 void GetVal(void *va, void *val, int size);
 void MatMult(void *mat1, void *mat2, int size, void *answer);
 double misses;
-double accesses; 
+double accesses;
 
 
 //helper function
